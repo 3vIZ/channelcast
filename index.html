@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ChannelCast</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1b1b1f;--mute:#6b6b76;--line:#e4e2dc;--accent:#e8412c;--accent-ink:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#141417;--card:#1d1d22;--ink:#f2f2f4;--mute:#9a9aa6;--line:#2c2c33;--accent:#ff5a44;--accent-ink:#141417}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+h1{font-size:24px;margin:0;letter-spacing:-.02em}h1 span{color:var(--accent)}
+.badge{font-size:12px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mute);background:var(--card);cursor:pointer}
+.badge.admin{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:16px}
+.tab{flex:none;padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font:inherit}
+.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input{flex:1;min-width:140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+.btn{padding:10px 16px;border-radius:10px;border:0;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:600;cursor:pointer}
+.ghost{background:none;border:1px solid var(--line);color:var(--mute);border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit;font-size:13px}
+.item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border:0}
+.n{width:28px;height:28px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font-size:13px;color:var(--mute);flex:none}
+.item.first .n{background:var(--accent);color:var(--accent-ink)}
+.t{flex:1;min-width:0}.t b{display:block;overflow-wrap:anywhere}.t small{color:var(--mute)}
+.empty,.msg{color:var(--mute);text-align:center;padding:24px 0}
+h2{font-size:15px;margin:0 0 12px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.hd{display:flex;justify-content:space-between;align-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><h1>Channel<span>Cast</span></h1><button id="role" class="badge">Admin login</button></header>
+<div id="app"><div class="msg">Loading…</div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// ---- CONFIG: paste from Supabase > Project Settings > API ----
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+const ADMIN_EMAIL = "visionx1021@gmail.com";
+// --------------------------------------------------------------
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let isAdmin=false, channels=[], queue=[], sel=null, err='';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fail=e=>{if(e){alert(e.message);return true}};
+
+async function load(){
+  const [c,q]=await Promise.all([
+    sb.from('channels').select('*').order('created_at'),
+    sb.from('queue_items').select('*').order('created_at')]);
+  if(c.error||q.error){err=(c.error||q.error).message}else{err='';channels=c.data;queue=q.data}
+  render();
+}
+
+function render(){
+  const app=$('#app');
+  if(err){app.innerHTML=`<div class="msg">Couldn’t load data: ${esc(err)}<br>Check your Supabase URL/key and that schema.sql was run.</div>`;return}
+  if(!sel||!channels.find(c=>c.id===sel)) sel=channels[0]?.id||null;
+  const ch=channels.find(c=>c.id===sel);
+  const items=queue.filter(q=>q.channel_id===sel);
+  let h='<div class="tabs">'+channels.map(c=>`<button class="tab ${c.id===sel?'on':''}" data-ch="${c.id}">${esc(c.name)}</button>`).join('')+'</div>';
+  if(isAdmin) h+=`<div class="card"><h2>New channel</h2><div class="row"><input id="chn" placeholder="Channel name"><button class="btn" id="addch">Add channel</button></div></div>`;
+  if(!ch){h+=`<div class="card empty">${isAdmin?'Create your first channel above.':'No channels yet. Check back soon.'}</div>`}
+  else{
+    if(isAdmin) h+=`<div class="card"><h2>Add to “${esc(ch.name)}” queue</h2><div class="row"><input id="qt" placeholder="Title"><input id="qn" placeholder="Note (optional)"><button class="btn" id="addq">Add</button></div></div>`;
+    h+=`<div class="card"><div class="hd"><h2>${esc(ch.name)} queue</h2>${isAdmin?'<button class="ghost" id="delch">Delete channel</button>':''}</div>`;
+    h+=items.length?items.map((q,i)=>`<div class="item ${i?'':'first'}"><div class="n">${i+1}</div><div class="t"><b>${esc(q.title)}</b>${q.note?`<small>${esc(q.note)}</small>`:''}</div>${isAdmin?`<button class="ghost" data-del="${q.id}">Remove</button>`:''}</div>`).join(''):'<div class="empty">The queue is empty.</div>';
+    h+='</div>';
+  }
+  app.innerHTML=h;
+  app.querySelectorAll('[data-ch]').forEach(b=>b.onclick=()=>{sel=b.dataset.ch;render()});
+  if(!isAdmin) return;
+  const on=(s,f)=>{const e=$(s);if(e)e.onclick=f};
+  on('#addch',async()=>{const v=$('#chn').value.trim();if(!v)return;const r=await sb.from('channels').insert({name:v}).select().single();if(!fail(r.error)){sel=r.data.id;load()}});
+  on('#addq',async()=>{const t=$('#qt').value.trim();if(!t)return;if(!fail((await sb.from('queue_items').insert({channel_id:sel,title:t,note:$('#qn').value.trim()||null})).error))load()});
+  app.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(!fail((await sb.from('queue_items').delete().eq('id',b.dataset.del)).error))load()});
+  on('#delch',async()=>{if(!confirm('Delete this channel and its queue?'))return;if(!fail((await sb.from('channels').delete().eq('id',sel)).error))load()});
+}
+
+function setRole(session){
+  isAdmin=session?.user?.email?.toLowerCase()===ADMIN_EMAIL;
+  const r=$('#role');
+  r.textContent=isAdmin?'Admin · Sign out':'Admin login';
+  r.className='badge'+(isAdmin?' admin':'');
+  render();
+}
+
+$('#role').onclick=async()=>{
+  if(isAdmin){await sb.auth.signOut();return}
+  const email=prompt('Admin email:');
+  if(!email) return;
+  if(email.trim().toLowerCase()!==ADMIN_EMAIL){alert('That email is not an admin.');return}
+  const {error}=await sb.auth.signInWithOtp({email:ADMIN_EMAIL,options:{emailRedirectTo:location.href.split('#')[0],shouldCreateUser:true}});
+  alert(error?error.message:'Check your inbox for the login link.');
+};
+
+sb.auth.onAuthStateChange((_e,session)=>setRole(session));
+sb.auth.getSession().then(({data})=>setRole(data.session));
+load();
+sb.channel('cc').on('postgres_changes',{event:'*',schema:'public'},load).subscribe();
+</script>
+</body>
+</html>
