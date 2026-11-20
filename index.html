@@ -46,7 +46,7 @@ const ADMIN_EMAIL = "visionx1021@gmail.com";
 // --------------------------------------------------------------
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let isAdmin=false, channels=[], queue=[], sel=null, err='';
+let loginOpen=false, isAdmin=false, channels=[], queue=[], sel=null, err='';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fail=e=>{if(e){alert(e.message);return true}};
@@ -65,7 +65,8 @@ function render(){
   if(!sel||!channels.find(c=>c.id===sel)) sel=channels[0]?.id||null;
   const ch=channels.find(c=>c.id===sel);
   const items=queue.filter(q=>q.channel_id===sel);
-  let h='<div class="tabs">'+channels.map(c=>`<button class="tab ${c.id===sel?'on':''}" data-ch="${c.id}">${esc(c.name)}</button>`).join('')+'</div>';
+  let h=(loginOpen&&!isAdmin)?'<div class="card"><h2>Admin login</h2><div class="row"><input id="lp" type="password" placeholder="Password" autocomplete="current-password"><button class="btn" id="lgo">Sign in</button></div></div>':'';
+  h+='<div class="tabs">'+channels.map(c=>`<button class="tab ${c.id===sel?'on':''}" data-ch="${c.id}">${esc(c.name)}</button>`).join('')+'</div>';
   if(isAdmin) h+=`<div class="card"><h2>New channel</h2><div class="row"><input id="chn" placeholder="Channel name"><button class="btn" id="addch">Add channel</button></div></div>`;
   if(!ch){h+=`<div class="card empty">${isAdmin?'Create your first channel above.':'No channels yet. Check back soon.'}</div>`}
   else{
@@ -75,6 +76,8 @@ function render(){
     h+='</div>';
   }
   app.innerHTML=h;
+  const lgo=$('#lgo');
+  if(lgo){const go=async()=>{const {error}=await sb.auth.signInWithPassword({email:ADMIN_EMAIL,password:$('#lp').value});if(error)alert(error.message);else loginOpen=false};lgo.onclick=go;$('#lp').onkeydown=e=>{if(e.key==='Enter')go()};$('#lp').focus()}
   app.querySelectorAll('[data-ch]').forEach(b=>b.onclick=()=>{sel=b.dataset.ch;render()});
   if(!isAdmin) return;
   const on=(s,f)=>{const e=$(s);if(e)e.onclick=f};
@@ -86,6 +89,7 @@ function render(){
 
 function setRole(session){
   isAdmin=session?.user?.email?.toLowerCase()===ADMIN_EMAIL;
+  if(isAdmin) loginOpen=false;
   const r=$('#role');
   r.textContent=isAdmin?'Admin · Sign out':'Admin login';
   r.className='badge'+(isAdmin?' admin':'');
@@ -94,11 +98,7 @@ function setRole(session){
 
 $('#role').onclick=async()=>{
   if(isAdmin){await sb.auth.signOut();return}
-  const email=prompt('Admin email:');
-  if(!email) return;
-  if(email.trim().toLowerCase()!==ADMIN_EMAIL){alert('That email is not an admin.');return}
-  const {error}=await sb.auth.signInWithOtp({email:ADMIN_EMAIL,options:{emailRedirectTo:location.href.split('#')[0],shouldCreateUser:true}});
-  alert(error?error.message:'Check your inbox for the login link.');
+  loginOpen=!loginOpen;render();
 };
 
 sb.auth.onAuthStateChange((_e,session)=>setRole(session));
