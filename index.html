@@ -30,6 +30,10 @@ input{flex:1;min-width:140px;padding:10px 12px;border-radius:10px;border:1px sol
 .empty,.msg{color:var(--mute);text-align:center;padding:24px 0}
 h2{font-size:15px;margin:0 0 12px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
 .hd{display:flex;justify-content:space-between;align-items:center}
+.drop{display:block;margin-top:10px;padding:22px;border:2px dashed var(--line);border-radius:12px;text-align:center;color:var(--mute);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+video{display:block;width:100%;max-width:520px;margin-top:8px;border-radius:10px;background:#000}
+.item{align-items:flex-start}
 </style>
 </head>
 <body>
@@ -70,9 +74,9 @@ function render(){
   if(isAdmin) h+=`<div class="card"><h2>New channel</h2><div class="row"><input id="chn" placeholder="Channel name"><button class="btn" id="addch">Add channel</button></div></div>`;
   if(!ch){h+=`<div class="card empty">${isAdmin?'Create your first channel above.':'No channels yet. Check back soon.'}</div>`}
   else{
-    if(isAdmin) h+=`<div class="card"><h2>Add to “${esc(ch.name)}” queue</h2><div class="row"><input id="qt" placeholder="Title"><input id="qn" placeholder="Note (optional)"><button class="btn" id="addq">Add</button></div></div>`;
+    if(isAdmin) h+=`<div class="card"><h2>Add to “${esc(ch.name)}” queue</h2><div class="row"><input id="qt" placeholder="Title"><input id="qn" placeholder="Note (optional)"><button class="btn" id="addq">Add</button></div><label class="drop" id="drop">Drag a video file here, or click to choose<input type="file" id="vf" accept="video/*" hidden></label></div>`;
     h+=`<div class="card"><div class="hd"><h2>${esc(ch.name)} queue</h2>${isAdmin?'<button class="ghost" id="delch">Delete channel</button>':''}</div>`;
-    h+=items.length?items.map((q,i)=>`<div class="item ${i?'':'first'}"><div class="n">${i+1}</div><div class="t"><b>${esc(q.title)}</b>${q.note?`<small>${esc(q.note)}</small>`:''}</div>${isAdmin?`<button class="ghost" data-del="${q.id}">Remove</button>`:''}</div>`).join(''):'<div class="empty">The queue is empty.</div>';
+    h+=items.length?items.map((q,i)=>`<div class="item ${i?'':'first'}"><div class="n">${i+1}</div><div class="t"><b>${esc(q.title)}</b>${q.note?`<small>${esc(q.note)}</small>`:''}${q.video_url?`<video controls preload="metadata" src="${esc(q.video_url)}"></video>`:''}</div>${isAdmin?`<button class="ghost" data-del="${q.id}">Remove</button>`:''}</div>`).join(''):'<div class="empty">The queue is empty.</div>';
     h+='</div>';
   }
   app.innerHTML=h;
@@ -83,8 +87,27 @@ function render(){
   const on=(s,f)=>{const e=$(s);if(e)e.onclick=f};
   on('#addch',async()=>{const v=$('#chn').value.trim();if(!v)return;const r=await sb.from('channels').insert({name:v}).select().single();if(!fail(r.error)){sel=r.data.id;load()}});
   on('#addq',async()=>{const t=$('#qt').value.trim();if(!t)return;if(!fail((await sb.from('queue_items').insert({channel_id:sel,title:t,note:$('#qn').value.trim()||null})).error))load()});
-  app.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(!fail((await sb.from('queue_items').delete().eq('id',b.dataset.del)).error))load()});
+  const drop=$('#drop');
+  if(drop){
+    drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};
+    drop.ondragleave=()=>drop.classList.remove('over');
+    drop.ondrop=e=>{e.preventDefault();upload(e.dataTransfer.files[0])};
+    $('#vf').onchange=e=>upload(e.target.files[0]);
+  }
+  app.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{const it=queue.find(q=>q.id===b.dataset.del);if(it?.video_path)await sb.storage.from('videos').remove([it.video_path]);if(!fail((await sb.from('queue_items').delete().eq('id',b.dataset.del)).error))load()});
   on('#delch',async()=>{if(!confirm('Delete this channel and its queue?'))return;if(!fail((await sb.from('channels').delete().eq('id',sel)).error))load()});
+}
+
+async function upload(file){
+  if(!file||!file.type.startsWith('video/')){alert('Please choose a video file.');return}
+  const title=$('#qt').value.trim()||file.name.replace(/\.[^.]+$/,''), note=$('#qn').value.trim()||null;
+  $('#drop').textContent='Uploading '+file.name+'… don’t close the page';
+  const path=sel+'/'+Date.now()+'-'+file.name.replace(/[^\w.\-]/g,'_');
+  const up=await sb.storage.from('videos').upload(path,file,{contentType:file.type});
+  if(up.error){alert(up.error.message);render();return}
+  const url=sb.storage.from('videos').getPublicUrl(path).data.publicUrl;
+  fail((await sb.from('queue_items').insert({channel_id:sel,title,note,video_url:url,video_path:path})).error);
+  load();
 }
 
 function setRole(session){
